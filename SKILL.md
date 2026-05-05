@@ -1,13 +1,16 @@
 ---
 name: google-chrome
-description: Google Chrome on macOS — profile discovery, Bookmarks JSON structure, safe edit patterns (quit-restart), AppleScript tab/window control, UI-scripting limits of the bookmark bubble, extension paths, sessions, and cross-references to chrome-cookies. Auto-triggers on "chrome bookmarks", "chrome profile", "open chrome tab", "chrome extension", "edit chrome bookmarks", "chrome applescript".
+description: Google Chrome on macOS — profile discovery, Bookmarks JSON structure, safe edit patterns (quit-restart), AppleScript tab/window control, UI-scripting limits of the bookmark bubble, extension paths, and live session cookie extraction (`browser_cookie3` via macOS Keychain) for calling internal web APIs when an MCP is unavailable. Auto-triggers on "chrome bookmarks", "chrome profile", "open chrome tab", "chrome extension", "edit chrome bookmarks", "chrome applescript", "extract chrome cookies", "get session cookie from chrome", "MCP is down need cookie for X", "browser_cookie3", "session cookie for [domain]".
+disable-model-invocation: false
+user-invocable: true
+argument-hint: "domain to extract cookies for (e.g. airtable.com)"
 ---
 
 # Google Chrome Skill
 
-macOS-only. Operate Google Chrome programmatically: discover profiles, read/write the Bookmarks JSON, control tabs and windows via AppleScript, and understand the limits of UI scripting.
+macOS-only. Operate Google Chrome programmatically: discover profiles, read/write the Bookmarks JSON, control tabs and windows via AppleScript, and extract live session cookies for authenticated web-API calls.
 
-> Sister skill: `chrome-cookies` — extract live session cookies from a logged-in Chrome profile. Use that for cookie work; this skill covers everything else.
+When invoked as `/google-chrome <domain>`, runs `extract.py <domain>` to pull live cookies for that domain (see Section 7).
 
 ---
 
@@ -245,9 +248,106 @@ Don't disable/enable extensions by hand-editing `Preferences` while Chrome is ru
 
 ---
 
-## 7. Cookies
+## 7. Cookies — live session extraction
 
-→ Use the `chrome-cookies` skill. It encapsulates `browser_cookie3`, profile selection, and the inline-substitution-only pattern for safely passing extracted cookies into a `curl` without echoing them to stdout.
+Pull session cookies from a running Chrome's encrypted Cookies SQLite database via the macOS Keychain ("Chrome Safe Storage"). Used as auth credentials for internal web APIs when an MCP is down or lacks the action you need.
+
+### When to use
+
+- An MCP server is down or lacks the specific action, and the fallback path requires a session cookie for a service the user is logged into in Chrome
+- A per-service skill (betterproposals, gemini, isracard) hits its stale-cookie path and needs a fresh cookie without manual DevTools work
+- Any one-off `curl` to an internal web API that uses cookie-based session auth
+
+### When NOT to use
+
+- The service has a working MCP — use the MCP instead
+- The service supports API key auth — use 1Password (`op read`) instead
+- The service uses an OAuth Bearer token in localStorage (e.g. Respond.io Cognito JWT) — cookies won't help; use the per-service skill's documented Authorization-header path
+- You are on Linux or Windows — `browser_cookie3`'s macOS Keychain decryption is macOS-only
+
+### Prerequisites (one-time per machine)
+
+1. Install the library:
+   ```bash
+   pip3 install --user browser-cookie3
+   ```
+
+2. **First run triggers a macOS Keychain dialog** — "chromedriver wants to use the 'Chrome Safe Storage' key." Click **"Always Allow"** once. This cannot be automated by an agent. After "Always Allow", subsequent calls work silently. If "Allow" was clicked instead, the prompt re-appears every call — re-run once and pick "Always Allow".
+
+### Usage — inline substitution (preferred)
+
+`$(...)` keeps the cookie value in the consuming process's argv only. Same discipline as `op read`. Never echo, never assign to a long-lived shell variable, never write to a tracked file.
+
+```bash
+curl -H "Cookie: $(python3 ~/.claude/skills/google-chrome/extract.py airtable.com)" \
+  'https://airtable.com/v0.3/...'
+```
+
+Or from the agent-kit working directory:
+
+```bash
+curl -H "Cookie: $(python3 deploy/kit/skills/google-chrome/extract.py airtable.com)" \
+  'https://airtable.com/v0.3/...'
+```
+
+### Usage — JSON output
+
+For programmatic consumption inside a Python script:
+
+```bash
+python3 ~/.claude/skills/google-chrome/extract.py airtable.com --json
+```
+
+Output: JSON array of `{name, value, domain, path, secure, expires}` objects.
+
+```python
+import subprocess, json
+
+result = subprocess.run(
+    ["python3", "/Users/danielrudaev/.claude/skills/google-chrome/extract.py",
+     "airtable.com", "--json"],
+    capture_output=True, text=True, check=True,
+)
+cookies = {c["name"]: c["value"] for c in json.loads(result.stdout)}
+session = requests.Session()
+session.cookies.update(cookies)
+```
+
+### Per-service domain table
+
+| Service | Domain arg | Notes |
+|---|---|---|
+| Airtable internal API | `airtable.com` | session + CSRF in cookies |
+| n8n web UI | `n8n.example.com` | Zero Trust gate; SSH-tunnel separately if needed |
+| Coolify dashboard | `coolify.example.com` | Zero Trust gate |
+| Chatwoot admin | `chatwoot.example.com` | Zero Trust gate |
+| BetterProposals | `betterproposals.com` | PHP session + CSRF; see betterproposals skill for CSRF extraction |
+| Gemini web | `gemini.google.com` | Also extracts google.com cookies; the `at` CSRF token still needs manual extraction from a recent batchexecute body |
+| Respond.io | `app.respond.io` | **Does NOT work** — Cognito JWT lives in localStorage, not cookies. Use the respond skill's Authorization-header path |
+| Isracard | `digital.isracard.co.il` | session cookie; also try `web.isracard.co.il` if needed |
+| Morning (Green Invoice) | `app.greeninvoice.co.il` | session cookie for internal API |
+
+### Security rules
+
+Extracted cookies are session secrets. Apply the same discipline as `op read` output:
+
+- **Inline `$(...)` substitution only** — the cookie value passes through argv to the consuming process and dies with it
+- **Never `VAR=$(python3 extract.py domain)` as a standalone assignment** — that creates a long-lived shell variable that leaks via `set`, xtrace, and child process inheritance
+- **Never echo, cat, tee, or pipe to a printer** — any command that echoes the value to stdout puts a session credential into the agent transcript
+- **Never run `extract.py` as a standalone command and let its stdout reach the agent** — always consume it inline with `$(...)`
+- **Never write extracted cookies to a tracked file**
+- **Never include cookie values in tool result transcripts, session notes, or task logs**
+
+### Troubleshooting
+
+| Error | Cause | Fix |
+|---|---|---|
+| `Could not find Chrome cookie file` | Non-default Chrome profile | Pass `--profile <ProfileName>` (e.g. `--profile "Profile 1"`) |
+| Keychain prompt on every call | User clicked "Allow" not "Always Allow" | Re-run once, click "Always Allow" |
+| `database is locked` | Very rare with the copy-then-read pattern | Retry once |
+| Empty cookie list for a logged-in domain | Cookie stored on parent/sibling subdomain | Try parent domain (e.g. `.greeninvoice.co.il` instead of `app.greeninvoice.co.il`) |
+| `ModuleNotFoundError: No module named 'browser_cookie3'` | Library not installed | `pip3 install --user browser-cookie3` |
+| `KeyError` or decryption error | Keychain access denied or Chrome Safe Storage key missing | Ensure Chrome has been launched at least once and the Keychain entry exists |
 
 ---
 

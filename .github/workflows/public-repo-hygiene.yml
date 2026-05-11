@@ -1,0 +1,38 @@
+name: public-repo-hygiene
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: scan for forbidden patterns
+        run: |
+          set +e
+          fail=0
+          EX="--exclude-dir=.git --exclude=public-repo-hygiene.yml"
+
+          if grep -rE $EX "d1dx\.tools" . ; then
+            echo "::error::Found internal d1dx.tools hostname — use example.com / placeholder"
+            fail=1
+          fi
+
+          if grep -rE $EX "100\.107\.1\.[0-9]+" . ; then
+            echo "::error::Found internal Tailscale IP (100.107.1.x)"
+            fail=1
+          fi
+
+          # phones: allow only +NN000... placeholders
+          if grep -rE $EX "\+(972|66)[ -]?[0-9]{1,2}[ -]?[0-9]{3}[ -]?[0-9]{4}" . | grep -vE "\+(972|66)0{8,12}" ; then
+            echo "::error::Found probable real Israeli/Thai phone number. Use +NN0000000 placeholders only."
+            fail=1
+          fi
+
+          if grep -rEi $EX "danielrudaev@(gmail|yahoo|hotmail|me|icloud|outlook)\.com" . ; then
+            echo "::error::Found personal email address — replace with author@example.com"
+            fail=1
+          fi
+
+          exit $fail

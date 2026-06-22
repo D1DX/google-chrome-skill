@@ -37,7 +37,7 @@ for p in "$ROOT"/Default "$ROOT"/Profile\ *; do
 done
 ```
 
-The Chrome window title also exposes the profile in parentheses: `LinkedIn - Google Chrome - Daniel (.D1DX)` → profile name is `.D1DX`.
+The Chrome window title also exposes the profile in parentheses: `LinkedIn - Google Chrome - Alex (Work)` → profile name is `Work`.
 
 ---
 
@@ -301,10 +301,10 @@ python3 ~/.claude/skills/google-chrome/extract.py airtable.com --json
 Output: JSON array of `{name, value, domain, path, secure, expires}` objects.
 
 ```python
-import subprocess, json
+import subprocess, json, os
 
 result = subprocess.run(
-    ["python3", "/Users/danielrudaev/.claude/skills/google-chrome/extract.py",
+    ["python3", os.path.expanduser("~/.claude/skills/google-chrome/extract.py"),
      "airtable.com", "--json"],
     capture_output=True, text=True, check=True,
 )
@@ -353,7 +353,7 @@ Extracted cookies are session secrets. Apply the same discipline as `op read` ou
 
 ## 8. Common gotchas
 
-- **Profile-folder display name ≠ folder name.** Always read `Preferences.profile.name` to identify the right profile. `Profile 4` could be Daniel's `.D1DX` or anything else.
+- **Profile-folder display name ≠ folder name.** Always read `Preferences.profile.name` to identify the right profile. `Profile 4` could be your `Work` profile or anything else.
 - **Multiple Chrome windows ≠ multiple profiles.** A single profile can have many windows; each profile launches its own browser process. Use `osascript` to enumerate windows and check titles for the profile suffix.
 - **`Bookmarks.bak` will trip you up.** If you delete `Bookmarks` (or corrupt it badly) and Chrome sees the .bak with old data, it'll restore stale state silently. When in doubt, check both files.
 - **Sync.** If Chrome Sync is on, your external bookmark edit will be propagated to other devices on the next sync. That's usually what you want — but it also means a bad edit is harder to take back.

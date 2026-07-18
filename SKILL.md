@@ -283,13 +283,6 @@ curl -H "Cookie: $(python3 ~/.claude/skills/google-chrome/extract.py airtable.co
   'https://airtable.com/v0.3/...'
 ```
 
-Or from the agent-kit working directory:
-
-```bash
-curl -H "Cookie: $(python3 deploy/kit/skills/google-chrome/extract.py airtable.com)" \
-  'https://airtable.com/v0.3/...'
-```
-
 ### Usage — JSON output
 
 For programmatic consumption inside a Python script:

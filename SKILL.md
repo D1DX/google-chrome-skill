@@ -2,7 +2,7 @@
 name: google-chrome
 description: Google Chrome on macOS — profile discovery, Bookmarks JSON structure, safe edit patterns (quit-restart), AppleScript tab/window control, UI-scripting limits of the bookmark bubble, extension paths, and live session cookie extraction (`browser_cookie3` via macOS Keychain) for calling internal web APIs when an MCP is unavailable. Auto-triggers on "chrome bookmarks", "chrome profile", "open chrome tab", "chrome extension", "edit chrome bookmarks", "chrome applescript", "extract chrome cookies", "get session cookie from chrome", "MCP is down need cookie for X", "browser_cookie3", "session cookie for [domain]".
 disable-model-invocation: false
-user-invocable: true
+user-invokable: true
 argument-hint: "domain to extract cookies for (e.g. airtable.com)"
 ---
 
